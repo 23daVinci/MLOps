@@ -20,7 +20,7 @@ if __name__ == '__main__':
     # Access the timestamp
     timestamp = args.timestamp
     
-    # Use the timestamp in your script
+    # Use the timestamp in your script for model versioning
     print(f"Timestamp received from GitHub Actions: {timestamp}")
     
     # Check if the file exists within the folder
