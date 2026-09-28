@@ -1,8 +1,11 @@
 name: Periodic Model Calibration - Ghithub Lab 2
 
-on: 
+on:
   schedule:
-    - cron: '0 0 * * *' 
+    - cron: '0 0 * * *'
+
+permissions:
+  contents: write
 
 jobs:
   retrain:
