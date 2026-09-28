@@ -1,8 +1,8 @@
 # from sklearn.datasets import fetch_rcv1
-import mlflow, datetime, os, pickle, random
+import mlflow, datetime, os, pickle
 # import sklearn
 from joblib import dump
-from sklearn.datasets import make_classification
+from sklearn.datasets import load_breast_cancer
 from sklearn.metrics import accuracy_score, f1_score
 import sys
 from sklearn.ensemble import RandomForestClassifier
@@ -24,16 +24,7 @@ if __name__ == '__main__':
     print(f"Timestamp received from GitHub Actions: {timestamp}")
     
     # Check if the file exists within the folder
-    X, y = make_classification(
-                            n_samples=random.randint(0, 2000),
-                            n_features=6,
-                            n_informative=3,
-                            n_redundant=0,
-                            n_repeated=0,
-                            n_classes=2,
-                            random_state=0,
-                            shuffle=True,
-                        )
+    X, y = load_breast_cancer(return_X_y=True)
     if os.path.exists('data'): 
         with open('data/data.pickle', 'wb') as data:
             pickle.dump(X, data)
@@ -49,7 +40,7 @@ if __name__ == '__main__':
             pickle.dump(y, data)  
             
     mlflow.set_tracking_uri("./mlruns")
-    dataset_name = "Reuters Corpus Volume"
+    dataset_name = "Breast Cancer Wisconsin"
     current_time = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
     experiment_name = f"{dataset_name}_{current_time}"    
     experiment_id = mlflow.create_experiment(f"{experiment_name}")
