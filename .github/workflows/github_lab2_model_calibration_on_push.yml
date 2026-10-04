@@ -56,8 +56,8 @@ jobs:
 
     - name: Commit and Push Changes
       run: |
-        git config --global user.email "26876927+raminmohammadi@users.noreply.github.com"
-        git config --global user.name "raminmohammadi"
+        git config --global user.email "31367508+23daVinci@users.noreply.github.com"       
+        git config --global user.name "23daVinci"        
         metrics_filename="Labs/Github_Labs/Lab2/metrics/${timestamp}_metrics.json"
         model_filename="Labs/Github_Labs/Lab2/models/model_${timestamp}_dt_model.joblib"
         git add -f "$metrics_filename" "$model_filename"
