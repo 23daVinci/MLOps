@@ -1,20 +1,16 @@
-# File: main.py
+# File: main.py  (DAG 1 of 3: data preparation)
 from __future__ import annotations
 
 import pendulum
 from airflow import DAG
 from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.python import PythonOperator
-from airflow.providers.smtp.operators.smtp import EmailOperator
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
-from airflow.task.trigger_rule import TriggerRule
 
 from src.model_development import (
     load_data,
     data_preprocessing,
     separate_data_outputs,
-    build_model,
-    load_model,
 )
 
 # ---------- Default args ----------
@@ -27,11 +23,11 @@ default_args = {
 dag = DAG(
     dag_id="Airflow_Lab2",
     default_args=default_args,
-    description="Airflow-Lab2 DAG Description",
+    description="Lab2 DAG 1/3: load and preprocess data, then trigger model training",
     schedule="@daily",
     catchup=False,
     tags=["example"],
-    owner_links={"Ramin Mohammadi": "https://github.com/raminmohammadi/MLOps/"},
+    owner_links={"Naman Lazarus": "https://github.com/23daVinci"},
     max_active_runs=1,
 )
 
@@ -39,17 +35,9 @@ dag = DAG(
 owner_task = BashOperator(
     task_id="task_using_linked_owner",
     bash_command="echo 1",
-    owner="Ramin Mohammadi",
+    owner="Naman Lazarus",
     dag=dag,
 )
-
-# send_email = EmailOperator(
-#     task_id="send_email",
-#     to="rey.mhmmd@gmail.com",
-#     subject="Notification from Airflow",
-#     html_content="<p>This is a notification email sent from Airflow.</p>",
-#     dag=dag,
-# )
 
 load_data_task = PythonOperator(
     task_id="load_data_task",
@@ -71,32 +59,17 @@ separate_data_outputs_task = PythonOperator(
     dag=dag,
 )
 
-build_save_model_task = PythonOperator(
-    task_id="build_save_model_task",
-    python_callable=build_model,
-    op_args=[separate_data_outputs_task.output, "model.sav"],
-    dag=dag,
-)
-
-load_model_task = PythonOperator(
-    task_id="load_model_task",
-    python_callable=load_model,
-    op_args=[separate_data_outputs_task.output, "model.sav"],
-    dag=dag,
-)
-
-# Fire-and-forget trigger so this DAG can finish cleanly.
-trigger_dag_task = TriggerDagRunOperator(
-    task_id="my_trigger_task",
-    trigger_dag_id="Airflow_Lab2_Flask",
-    conf={"message": "Data from upstream DAG"},
+# Hand the preprocessed-data path to the training DAG through conf.
+# Default trigger rule (all_success): if data prep fails, do NOT train on stale data.
+trigger_train_task = TriggerDagRunOperator(
+    task_id="trigger_train_dag",
+    trigger_dag_id="Airflow_Lab2_Train",
+    conf={"preprocessed_path": "{{ ti.xcom_pull(task_ids='separate_data_outputs_task') }}"},
     reset_dag_run=False,
-    wait_for_completion=False,          # don't block
-    trigger_rule=TriggerRule.ALL_DONE,  # still run even if something upstream fails
+    wait_for_completion=False,  # fire and forget
     dag=dag,
 )
 
 # ---------- Dependencies ----------
 owner_task >> load_data_task >> data_preprocessing_task >> \
-    separate_data_outputs_task >> build_save_model_task >> \
-    load_model_task >> trigger_dag_task
+    separate_data_outputs_task >> trigger_train_task

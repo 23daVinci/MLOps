@@ -3,14 +3,29 @@ import os
 import pickle
 import pandas as pd
 from sklearn.compose import make_column_transformer
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.svm import SVC
 
 WORKING_DIR = "/opt/airflow/working_data"
 MODEL_DIR = "/opt/airflow/model"
 os.makedirs(WORKING_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
+
+DEFAULT_PREPROCESSED_PATH = os.path.join(WORKING_DIR, "preprocessed.pkl")
+
+# Candidate models tried by the training DAG. Names (not objects) travel through
+# XCom, so each one is built by name inside the task that uses it.
+CANDIDATES = {
+    "logistic_regression": lambda: LogisticRegression(max_iter=1000),
+    "random_forest": lambda: RandomForestClassifier(n_estimators=200, random_state=42),
+    "gradient_boosting": lambda: GradientBoostingClassifier(random_state=42),
+    "svc": lambda: SVC(),
+    "knn": lambda: KNeighborsClassifier(),
+}
 
 def load_data() -> str:
     """
@@ -75,21 +90,55 @@ def separate_data_outputs(file_path: str) -> str:
     """
     return file_path
 
-def build_model(file_path: str, filename: str) -> str:
+def resolve_input_path(**context) -> str:
     """
-    Train LR model and save to MODEL_DIR/filename. Returns model path.
+    Return the preprocessed-data path sent by the upstream DAG through dag_run.conf,
+    or the default location when this DAG is triggered by hand.
+    """
+    conf = context["dag_run"].conf or {}
+    return conf.get("preprocessed_path") or DEFAULT_PREPROCESSED_PATH
+
+def evaluate_candidate(file_path: str, model_name: str) -> dict:
+    """
+    Score one candidate with 5-fold cross-validation on the TRAINING split only,
+    so the test set stays untouched for the final report.
     """
     with open(file_path, "rb") as f:
         X_train, X_test, y_train, y_test = pickle.load(f)
 
-    model = LogisticRegression()
+    model = CANDIDATES[model_name]()
+    scores = cross_val_score(model, X_train, y_train, cv=5)
+    result = {"model": model_name, "cv_accuracy": float(scores.mean())}
+    print(f"{model_name}: cv_accuracy={result['cv_accuracy']:.4f}")
+    return result
+
+def select_and_save_best(file_path: str, results, filename: str) -> dict:
+    """
+    Pick the candidate with the best CV accuracy, refit it on the full training
+    split, save it to MODEL_DIR/filename, and report its test accuracy.
+    """
+    results = list(results)  # mapped-task output arrives as a lazy sequence
+    best = max(results, key=lambda r: r["cv_accuracy"])
+
+    with open(file_path, "rb") as f:
+        X_train, X_test, y_train, y_test = pickle.load(f)
+
+    model = CANDIDATES[best["model"]]()
     model.fit(X_train, y_train)
 
     model_path = os.path.join(MODEL_DIR, filename)
     with open(model_path, "wb") as f:
         pickle.dump(model, f)
 
-    return model_path
+    summary = {
+        "model": best["model"],
+        "cv_accuracy": best["cv_accuracy"],
+        "test_accuracy": float(model.score(X_test, y_test)),
+        "path": model_path,
+        "all_results": results,
+    }
+    print(f"Best model: {summary['model']} (cv={summary['cv_accuracy']:.4f}, test={summary['test_accuracy']:.4f})")
+    return summary
 
 def load_model(file_path: str, filename: str) -> int:
     """

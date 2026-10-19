@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline Status | MLOps Platform</title>
+    {% if overall == 'in_progress' %}<meta http-equiv="refresh" content="10">{% endif %}
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --green: #10b981;
+            --red: #e11d48;
+            --amber: #d97706;
+        }
+        body.success      { --accent: var(--green); --bg-color: #f8fafc; --tint: #ecfdf5; }
+        body.failed       { --accent: var(--red);   --bg-color: #fff1f2; --tint: #fff1f2; }
+        body.in_progress  { --accent: var(--amber); --bg-color: #fffbeb; --tint: #fef3c7; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            width: 100%;
+            max-width: 560px;
+            background: var(--card-bg);
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.06);
+            padding: 40px;
+            text-align: center;
+            border-top: 8px solid var(--accent);
+        }
+        .icon-circle {
+            width: 80px; height: 80px;
+            background: var(--tint);
+            color: var(--accent);
+            border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            margin: 0 auto 20px;
+            font-size: 40px; font-weight: bold;
+        }
+        h1 { margin: 0 0 10px; font-weight: 600; }
+        p.sub { color: var(--text-muted); margin: 0 0 28px; }
+
+        .stage {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-left: 6px solid var(--text-muted);
+            border-radius: 12px;
+            padding: 16px 18px;
+            text-align: left;
+            margin-bottom: 14px;
+        }
+        .stage.success     { border-left-color: var(--green); }
+        .stage.failed      { border-left-color: var(--red); }
+        .stage.in_progress { border-left-color: var(--amber); }
+        .stage-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+        .stage-name { font-weight: 600; }
+        .badge { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+        .stage.success .badge     { color: var(--green); }
+        .stage.failed .badge      { color: var(--red); }
+        .stage.in_progress .badge { color: var(--amber); }
+        .meta-item { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; gap: 12px; }
+        .meta-label { font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+        .meta-value { font-family: monospace; word-break: break-all; text-align: right; }
+        .note { color: var(--text-muted); font-size: 13px; margin-top: 6px; }
+
+        .footer { color: var(--text-muted); font-size: 12px; margin: 22px 0; }
+        .btn {
+            display: block; padding: 12px; border-radius: 8px;
+            font-weight: 600; font-size: 14px; text-decoration: none;
+            background: var(--accent); color: white;
+        }
+    </style>
+</head>
+<body class="{{ overall }}">
+    <div class="container">
+        <div class="icon-circle">{% if overall == 'success' %}✓{% elif overall == 'failed' %}!{% else %}…{% endif %}</div>
+        <h1>{{ headline }}</h1>
+        <p class="sub">
+            {% if overall == 'success' %}Both stages completed successfully.
+            {% elif overall == 'failed' %}{% if failed_stage %}Check the {{ failed_stage|lower }} stage below.{% else %}{{ note }}{% endif %}
+            {% else %}This page refreshes every 10 seconds.{% endif %}
+        </p>
+
+        {% for s in stages %}
+        <div class="stage {{ s.status }}">
+            <div class="stage-head">
+                <span class="stage-name">{{ loop.index }}. {{ s.label }}</span>
+                <span class="badge">{{ s.state }}</span>
+            </div>
+            <div class="meta-item"><span class="meta-label">DAG</span><span class="meta-value">{{ s.dag_id }}</span></div>
+            <div class="meta-item"><span class="meta-label">Run ID</span><span class="meta-value">{{ s.run_id }}</span></div>
+            <div class="meta-item"><span class="meta-label">Started</span><span class="meta-value">{{ s.start_date }}</span></div>
+            <div class="meta-item"><span class="meta-label">Ended</span><span class="meta-value">{{ s.end_date }}</span></div>
+            {% if s.note %}<div class="note">{{ s.note }}</div>{% endif %}
+        </div>
+        {% endfor %}
+
+        <div class="footer">Checked at <span id="current-time"></span></div>
+        <a href="http://localhost:8080" class="btn">Open Airflow</a>
+    </div>
+
+    <script>
+        document.getElementById('current-time').textContent = new Date().toLocaleTimeString();
+    </script>
+</body>
+</html>

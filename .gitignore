@@ -183,3 +183,6 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 .DS_Store
+# Airflow config is generated on first start and contains generated keys (Lab_2)
+Labs/Airflow_Labs/Lab_2/config/airflow.cfg
+Labs/Airflow_Labs/Lab_2/config/airflow.cfg.bk
