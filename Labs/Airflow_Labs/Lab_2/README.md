@@ -31,11 +31,11 @@ Original lab tutorial video: [Airflow Lab2](https://youtu.be/LwBFOyfN5TY). This 
 5. [What a successful run looks like](#5-what-a-successful-run-looks-like)
 6. [Try a failure](#6-try-a-failure-optional)
 7. [Stop and clean up](#7-stop-and-clean-up)
-8. [What I changed in the lab, and why](#8-what-I-changed-in-the-lab-and-why)
+8. [What I changed in the lab, and why](#8-what-i-changed-in-the-lab-and-why)
 9. [How the pieces fit together](#9-how-the-pieces-fit-together)
 10. [Using real Gmail instead of Mailpit (optional)](#10-using-real-gmail-instead-of-mailpit-optional)\
-11. [Troubleshooting](#12-troubleshooting)
-12. [File map](#13-file-map)
+11. [Troubleshooting](#11-troubleshooting)
+12. [File map](#12-file-map)
 
 ---
 
@@ -55,7 +55,7 @@ Machine resources (Docker Desktop: Settings > Resources):
 - **RAM for Docker:** at least 4 GB, **8 GB recommended**.
 - **CPUs:** at least 2.
 - **Free disk:** about 10 GB.
-- **Free ports on your machine:** `8080` (Airflow UI), `5555` (status page), `8025` (mail inbox). If another program uses one of them, stop it first (see [Troubleshooting](#12-troubleshooting)). The lab binds these ports to `127.0.0.1`, so they are reachable **only from your own machine**, not from other devices on your network. This matters because the UI uses the default login `airflow` / `airflow`.
+- **Free ports on your machine:** `8080` (Airflow UI), `5555` (status page), `8025` (mail inbox). If another program uses one of them, stop it first (see [Troubleshooting](#11-troubleshooting)). The lab binds these ports to `127.0.0.1`, so they are reachable **only from your own machine**, not from other devices on your network. This matters because the UI uses the default login `airflow` / `airflow`.
 
 Install Docker Desktop from <https://docs.docker.com/desktop/>, start it, and wait until it reports that the engine is running. Then check:
 
@@ -77,7 +77,7 @@ These come from the container images, so you do not install them. They are liste
 | PostgreSQL (Airflow metadata) | 16 |
 | Redis (task queue) | 7.2 |
 | Mailpit (local mail catcher) | v1.31.6 |
-| pandas / scikit-learn / Flask | 2.3.3 / 1.8.0 / 3.1.3 (installed when the containers start; see [Known limitations](#11-known-limitations)) |
+| pandas / scikit-learn / Flask | 2.3.3 / 1.8.0 / 3.1.3 (installed, unpinned, when the containers start, so a much newer version could change the scores slightly) |
 
 ---
 
@@ -177,7 +177,7 @@ Expected: every service shows `Up ... (healthy)` except `airflow-init`, which sh
 
 **1. Open the Airflow UI:** <http://localhost:8080>. Log in with username `airflow` and password `airflow`.
 
-**2. Check the DAG list.** You should see exactly three DAGs: `Airflow_Lab2`, `Airflow_Lab2_Train` and `Airflow_Lab2_Flask`, and **no red "DAG Import Errors" banner**. (If a DAG is missing, wait a minute and refresh; see [Troubleshooting](#12-troubleshooting).)
+**2. Check the DAG list.** You should see exactly three DAGs: `Airflow_Lab2`, `Airflow_Lab2_Train` and `Airflow_Lab2_Flask`, and **no red "DAG Import Errors" banner**. (If a DAG is missing, wait a minute and refresh; see [Troubleshooting](#11-troubleshooting).)
 
 **3. Unpause `Airflow_Lab2`.** Use the toggle next to its name. It starts **paused**; the other two do not.
 
@@ -369,10 +369,10 @@ If sending fails, the log of the `send_email` task shows the SMTP error; `535` m
 | A DAG run stays `queued` and no task starts | The DAG is **paused**. Unpause it with the toggle. (A triggered run of a paused DAG waits.) |
 | A task is `queued` with the DAG unpaused | The worker is busy or not healthy. Check `docker compose ps`. |
 | Red "DAG Import Errors" banner | Open it to see the traceback. `ModuleNotFoundError` for pandas or sklearn right after the first start means packages are still installing; wait and refresh. |
-| A DAG is missing from the list | New files are found within 5 minutes; force with `airflow dags reserialize` (section 11). |
+| A DAG is missing from the list | New files are found within 5 minutes; force with `airflow dags reserialize`. |
 | <http://localhost:5555> does not load | The Flask DAG has not started yet. Trigger `Airflow_Lab2_Flask`, or finish a training run. |
 | Status page says "Cannot reach Airflow" | The API server is down or unhealthy. Check `docker compose ps`. |
-| Status page shows old behaviour after an edit | Restart the worker and re-trigger the Flask DAG (section 11). |
+| Status page shows old behaviour after an edit | Restart the worker and re-trigger the Flask DAG. |
 | No e-mail in the inbox | Check that the `send_email` task succeeded, that `.env` has the `SMTP_*` lines commented out, and that you are looking at <http://localhost:8025>. |
 | Permission errors writing `model/` or `working_data/` (Linux) | Set `AIRFLOW_UID` in `.env` to `$(id -u)` and recreate the folders. |
 
