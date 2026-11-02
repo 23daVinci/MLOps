@@ -1,0 +1,13 @@
+# Tested with Python 3.12 on Windows 11. Python 3.11 should also work.
+# Do NOT use Python 3.13+ (evidently 0.7.0 pins numpy<2.1, which has no wheels there)
+# and do NOT use pandas 3.x (evidently 0.7.0 fails to import).
+evidently==0.7.0
+numpy==2.0.2
+pandas==2.3.3
+scipy==1.18.1
+scikit-learn==1.9.1
+matplotlib==3.11.2
+
+# To run the notebooks
+ipykernel
+jupyterlab
