@@ -9,8 +9,8 @@ Everything runs from this folder as modules (`python -m <package>.<script>`).
 | 1. Tracking (baseline, GBM, PyTorch MLP, searches, lab-parity demos) | done |
 | 2. Registry (versions, aliases, 3 gates, challenger, deprecate, rollback, prod copy, lineage) | done |
 | 3. Deployment (serve, edge cases, load test, alias experiment, shadow, Docker, batch scoring) | done |
-| 4. Evaluation (final test eval, comparison, importance) | planned |
-| 5. Monitoring (Evidently, closed loop) | planned |
+| 4. Evaluation (one test-set pass with bootstrap confidence intervals) | done |
+| 5. Monitoring | skipped (not part of the labs) |
 
 ## Setup (Windows, from this folder)
 
@@ -119,6 +119,24 @@ What was measured (numbers from this laptop; client and server share the CPU, so
 The model server does NOT validate semantics: `age=250` is scored. Row validation lives in `batch_score.py`
 (quarantine file + tripwire) and would live in a gateway for online traffic.
 
+## Stage 4: evaluation
+
+```bash
+python -m s4_evaluation.final_eval      # test split, once; refuses a second run unless --force
+```
+
+Scores every registered version on the test split with bootstrap 95% intervals, and an interval on the AUC
+*difference* vs the champion (paired resamples). Writes `test_auc` / `test_evaluated` tags on each version.
+
+| ver | model | val AUC | test AUC | vs champion |
+|---|---|---|---|---|
+| v1 | logistic regression | 0.9072 | 0.9036 | -0.0244, clearly worse |
+| v2 | gradient boosting (champion) | 0.9312 | 0.9281 | |
+| v3 | PyTorch MLP | 0.9155 | 0.9105 | -0.0175, clearly worse |
+
+Test AUCs are 0.003-0.005 below validation for all three, as expected when models are chosen on validation; the
+ranking holds.
+
 ## Known issues (found by Stage 3 testing)
 
 - **v1-v3 carry a wrong signature.** `infer_signature` marked `workclass`, `occupation`, `native-country` as optional
@@ -140,6 +158,7 @@ The model server does NOT validate semantics: `age=250` is scored. Row validatio
 | `metrics.py` | metrics and plots shared by all models |
 | `ops/` | start/stop the MLflow server |
 | `s1_tracking/` | `common.py` (git_dirty, data profile, system metrics, timing), `search.py` (random/TPE runner), training scripts, `mlp_pyfunc.py`, demos |
+| `s4_evaluation/` | `final_eval.py` |
 | `s3_deployment/` | `common.py` (start/stop/query a model server), serve, tests, load, shadow, batch scoring, `Dockerfile`, `docker_build.py` |
 | `s2_registry/` | `common.py`, register, promote (gates/challenger/deprecate/rollback), promote_to_prod, registry_report, demos |
 
