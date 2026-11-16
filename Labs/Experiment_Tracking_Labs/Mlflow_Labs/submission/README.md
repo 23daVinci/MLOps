@@ -7,7 +7,7 @@ Everything runs from this folder as modules (`python -m <package>.<script>`).
 |---|---|
 | 0. Foundations (layout, data validation, run hygiene) | done |
 | 1. Tracking (baseline, GBM, PyTorch MLP, searches, lab-parity demos) | done |
-| 2. Registry (versions, aliases, gated promotion, rollback) | base done; extensions planned |
+| 2. Registry (versions, aliases, 3 gates, challenger, deprecate, rollback, prod copy, lineage) | done |
 | 3. Deployment (serve, Docker, batch scoring) | planned |
 | 4. Evaluation (final test eval, comparison, importance) | planned |
 | 5. Monitoring (Evidently, closed loop) | planned |
@@ -53,16 +53,31 @@ python -m s1_tracking.experiment_admin      # course notes: rename, tag, delete,
 ## Stage 2: registry
 
 ```bash
-python -m s2_registry.register_models      # 'adult-income-classifier' v1 (baseline), v2 (gbm)
-python -m s2_registry.promote 1            # bootstrap champion (contract gate only)
-python -m s2_registry.promote 2            # must pass contract + beat champion by 0.005 val AUC
-python -m s2_registry.promote --rollback   # champion <-> previous-champion (run twice to undo)
+python -m s2_registry.register_models [--dry-run]   # best run per family; skips near-duplicates
+python -m s2_registry.promote 1                      # bootstrap champion
+python -m s2_registry.promote 2                      # 3 gates: contract, budgets, performance
+python -m s2_registry.promote --challenge 3          # mark a sound-but-not-better model as challenger
+python -m s2_registry.promote --check 2              # audit gates 1-2, change no alias (backfill measurements)
+python -m s2_registry.promote --deprecate 3 --reason "..."   # retire, never delete
+python -m s2_registry.promote --rollback             # champion <-> previous-champion (twice = undo)
+python -m s2_registry.promote_to_prod                # copy the champion into adult-income-classifier-prod
+python -m s2_registry.registry_report                # lineage table + findings (reports/registry_report.md)
 ```
 
-Consumers load `models:/adult-income-classifier@champion` (follows promotions) or
-`models:/adult-income-classifier/2` (pinned). Every model is served through pyfunc and returns
-`[P(<=50K), P(>50K)]`; without `pyfunc_predict_fn="predict_proba"` sklearn models return hard labels
-(autolog models do exactly that, see `reports/autolog_vs_manual.md`).
+Lab-parity demos: `python -m s2_registry.legacy_stage_demo` (Lab 2's stage API on a throwaway model) and
+`python -m s2_registry.uri_tour` (every way to load a model, and which version each really returns).
+
+Gates, in order (cheapest evidence first): **contract** (valid probabilities, reproduces logged AUC),
+**budgets** (single-row p95 latency <= 50 ms, size <= 50 MB; env-overridable), **performance**
+(beats the champion by 0.005 val AUC). Failures never rewrite history: a version that already
+passed keeps `passed` and gets a `last_promotion_attempt` note instead.
+
+Aliases: `champion` (serving), `previous-champion` (rollback target), `challenger` (under evaluation).
+Consumers load `models:/adult-income-classifier@champion` (floats with promotions) or
+`models:/adult-income-classifier/2` (pinned). **Never serve `models:/.../latest`**: it is the highest
+version number, not the best model (the tour shows it resolving to the failed MLP).
+Every model returns `[P(<=50K), P(>50K)]` through pyfunc; without `pyfunc_predict_fn="predict_proba"`
+sklearn models return hard labels (autolog models do, see `reports/autolog_vs_manual.md`).
 
 ## Layout
 
@@ -74,7 +89,7 @@ Consumers load `models:/adult-income-classifier@champion` (follows promotions) o
 | `metrics.py` | metrics and plots shared by all models |
 | `ops/` | start/stop the MLflow server |
 | `s1_tracking/` | `common.py` (git_dirty, data profile, system metrics, timing), `search.py` (random/TPE runner), training scripts, `mlp_pyfunc.py`, demos |
-| `s2_registry/` | register, promote, rollback |
+| `s2_registry/` | `common.py`, register, promote (gates/challenger/deprecate/rollback), promote_to_prod, registry_report, demos |
 
 The test split is never touched during tracking or registry work. It is only used in the final evaluation stage.
 
