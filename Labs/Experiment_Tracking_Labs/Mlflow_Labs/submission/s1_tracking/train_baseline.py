@@ -6,7 +6,6 @@ Run the MLflow server first (python -m ops.start_server), then:
 import mlflow
 import mlflow.data
 import matplotlib.pyplot as plt
-from mlflow.models import infer_signature
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
@@ -14,7 +13,7 @@ import config
 import data
 from features import build_preprocessor
 from metrics import compute_metrics, make_plots
-from s1_tracking.common import log_run_context, setup_mlflow, timed
+from s1_tracking.common import log_run_context, setup_mlflow, strict_signature, timed
 
 PARAMS = {"C": 1.0, "max_iter": 1000}
 
@@ -84,7 +83,7 @@ def main():
         # The served (pyfunc) interface must match what we evaluated: class probabilities.
         # Default pyfunc.predict would return hard 0/1 labels, so we point it at
         # predict_proba and declare the 2-column output [P(<=50K), P(>50K)] in the signature.
-        signature = infer_signature(X_train, pipeline.predict_proba(X_train))
+        signature = strict_signature(X_train, pipeline.predict_proba(X_train))
         mlflow.sklearn.log_model(
             pipeline,
             name="model",

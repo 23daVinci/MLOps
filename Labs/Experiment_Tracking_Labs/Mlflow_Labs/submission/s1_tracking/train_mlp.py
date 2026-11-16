@@ -17,14 +17,13 @@ import mlflow.data
 import numpy as np
 import pandas as pd
 import torch
-from mlflow.models import infer_signature
 from sklearn.metrics import roc_auc_score
 from torch import nn
 
 import config
 import data
 from metrics import compute_metrics, make_plots
-from s1_tracking.common import log_run_context, setup_mlflow, timed
+from s1_tracking.common import log_run_context, setup_mlflow, strict_signature, timed
 from s1_tracking.mlp_pyfunc import MLPNet, TabularEncoder, net_config
 from s1_tracking.search import SAMPLERS, run_search
 
@@ -165,7 +164,7 @@ def main(sampler: str, n_trials: int):
             (tmp / "encoder.json").write_text(json.dumps(encoder.to_dict()))
             (tmp / "config.json").write_text(json.dumps(cfg))
             torch.save(net.state_dict(), tmp / "weights.pt")
-            signature = infer_signature(X_train, np.zeros((len(X_train), 2)))  # 13 inputs -> (n, 2) float64
+            signature = strict_signature(X_train, np.zeros((len(X_train), 2)))  # 13 inputs -> (n, 2) float64
             info = mlflow.pyfunc.log_model(
                 name="model",
                 python_model=str(MODEL_CODE),  # a PATH = models-from-code (no pickled classes)

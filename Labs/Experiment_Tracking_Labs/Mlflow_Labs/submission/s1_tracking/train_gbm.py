@@ -15,7 +15,6 @@ import argparse
 import matplotlib.pyplot as plt
 import mlflow
 import mlflow.data
-from mlflow.models import infer_signature
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.pipeline import Pipeline
 
@@ -23,7 +22,7 @@ import config
 import data
 from features import build_preprocessor
 from metrics import compute_metrics, make_plots
-from s1_tracking.common import log_run_context, setup_mlflow, timed
+from s1_tracking.common import log_run_context, setup_mlflow, strict_signature, timed
 from s1_tracking.search import SAMPLERS, run_search
 
 SELECTION_METRIC = "val_auc"  # chosen on validation; test is never used here
@@ -136,7 +135,7 @@ def main(sampler: str, n_trials: int):
 
         # Served (pyfunc) output = class probabilities, matching what we evaluated.
         # Default would be hard 0/1 labels. Declared as 2 columns [P(<=50K), P(>50K)].
-        signature = infer_signature(X_train, final.predict_proba(X_train))
+        signature = strict_signature(X_train, final.predict_proba(X_train))
         mlflow.sklearn.log_model(
             final,
             name="model",

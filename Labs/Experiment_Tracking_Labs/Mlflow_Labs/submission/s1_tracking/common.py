@@ -11,6 +11,8 @@ from contextlib import contextmanager
 
 import mlflow
 import pandas as pd
+from mlflow.models import ModelSignature, infer_signature
+from mlflow.types import ColSpec, Schema
 
 import config
 
@@ -74,3 +76,17 @@ def timed(metric_name: str = "train_seconds"):
     t0 = time.perf_counter()
     yield
     mlflow.log_metric(metric_name, round(time.perf_counter() - t0, 3))
+
+
+def strict_signature(X: pd.DataFrame, output) -> ModelSignature:
+    """infer_signature, but every input column REQUIRED (values may still be null).
+
+    infer_signature marks a column `required: false` when it contained NaNs in the sample (here:
+    workclass, occupation, native-country). MLflow then lets a request OMIT that column, but our
+    pipelines need it present, so the request got through the front door and crashed inside the model
+    with an opaque BAD_REQUEST (found by s3_deployment.edge_cases). Declaring the columns required
+    makes a missing column fail early with "Model is missing inputs [...]". Null VALUES are still fine.
+    """
+    sig = infer_signature(X, output)
+    inputs = Schema([ColSpec(c.type, c.name, required=True) for c in sig.inputs.inputs])
+    return ModelSignature(inputs=inputs, outputs=sig.outputs)

@@ -8,3 +8,4 @@ __pycache__/
 logs/
 reports/
 ops/.server.pid
+build/
