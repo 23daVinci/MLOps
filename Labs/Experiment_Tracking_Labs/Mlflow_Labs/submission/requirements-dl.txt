@@ -1,7 +1,0 @@
-# Extra dependencies for the DL model, searches, importance and serving tests.
-# Install after requirements.txt:  pip install -r requirements-dl.txt
-torch          # PyPI wheel for Windows is CPU-only, which is what we want
-optuna
-shap
-psutil
-httpx

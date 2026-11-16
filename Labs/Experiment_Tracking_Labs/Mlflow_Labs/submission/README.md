@@ -1,6 +1,6 @@
 # MLflow end-to-end pipeline (Adult Census Income)
 
-Stages: **Tracking -> Registry -> Deployment -> Evaluation -> Monitoring**, first with ML models, then a DL model.
+Stages: **Tracking -> Registry -> Deployment -> Evaluation**, with two ML models and a PyTorch neural net.
 Everything runs from this folder as modules (`python -m <package>.<script>`).
 
 | Stage | Status |
@@ -10,20 +10,32 @@ Everything runs from this folder as modules (`python -m <package>.<script>`).
 | 2. Registry (versions, aliases, 3 gates, challenger, deprecate, rollback, prod copy, lineage) | done |
 | 3. Deployment (serve, edge cases, load test, alias experiment, shadow, Docker, batch scoring) | done |
 | 4. Evaluation (one test-set pass with bootstrap confidence intervals) | done |
-| 5. Monitoring | skipped (not part of the labs) |
 
-## Setup (Windows, from this folder)
+## Quickstart (everything runs from this folder)
+
+You need Python 3.13 (what it was tested on), about 3 GB of free disk and ports 5000 and 5001 free.
+Internet is needed only for `pip install`: the dataset is included. Docker is optional.
 
 ```bash
 python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt -r requirements-dl.txt
+# activate the environment:
+#   Windows:       .venv\Scripts\activate
+#   macOS / Linux: source .venv/bin/activate
+pip install -r requirements.txt
+python run_all.py
 ```
+
+`run_all.py` (10-20 minutes depending on the machine; 18 in a clean-room test) starts MLflow, trains the three models, registers and promotes them, serves the
+champion and tests it, batch-scores a file, and runs the final test-set evaluation. It leaves the MLflow UI
+running at http://127.0.0.1:5000 (stop it with `python -m ops.stop_server`). Run it again with `--reset` to start
+from a clean registry. The rest of this README shows the same steps one at a time; every command assumes the
+virtual environment is activated.
 
 ## Server
 
 ```bash
-.venv/Scripts/python -m ops.start_server    # starts detached, waits for /health, UI at http://127.0.0.1:5000
-.venv/Scripts/python -m ops.stop_server     # stops the whole process tree
+python -m ops.start_server    # starts detached, waits for /health, UI at http://127.0.0.1:5000
+python -m ops.stop_server     # stops the whole process tree
 ```
 
 Flags it uses, each of which fixed a real problem: `--backend-store-uri sqlite:///mlflow.db` (SQL backend,
@@ -167,4 +179,4 @@ The test split is never touched during tracking or registry work. It is only use
 ## Not included (by choice)
 
 Spark (`spark_udf`, `SparkTrials`; replaced by a pandas batch-scoring job in Stage 3), GitHub Actions / pytest CI,
-deep fairness-slice analysis, GenAI tracing, cloud endpoints, Kubernetes.
+drift monitoring, deep fairness-slice analysis, GenAI tracing, cloud endpoints, Kubernetes.

@@ -1,5 +1,15 @@
-mlflow>=2.16
-scikit-learn>=1.4
-pandas
-numpy
-matplotlib
+# Everything needed to run this lab. Pinned to the versions it was developed and tested with
+# (Python 3.13, Windows 11): newer releases of pandas / scikit-learn / numpy can change behaviour.
+#
+# Linux without a GPU: torch from PyPI pulls ~2 GB of CUDA libraries. For the small CPU build, install with
+#   pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+mlflow==3.18.0
+scikit-learn==1.9.1
+pandas==3.1.1
+numpy==2.5.4
+scipy==1.18.1
+skops==0.16.0
+matplotlib==3.11.2
+torch==2.15.0
+optuna==5.0.0
+psutil==7.2.2
