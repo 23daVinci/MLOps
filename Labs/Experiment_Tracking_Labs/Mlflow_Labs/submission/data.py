@@ -66,7 +66,55 @@ def feature_columns(X: pd.DataFrame):
     return numeric, categorical
 
 
+class DataValidationError(ValueError):
+    pass
+
+
+EXPECTED_COLUMNS = [
+    "age", "workclass", "education", "education-num", "marital-status", "occupation",
+    "relationship", "race", "sex", "capital-gain", "capital-loss", "hours-per-week",
+    "native-country", config.TARGET,
+]
+# (min, max) allowed for numeric features; anything outside means the data changed under us.
+NUMERIC_RANGES = {
+    "age": (17, 100), "education-num": (1, 16), "capital-gain": (0, 100_000),
+    "capital-loss": (0, 5_000), "hours-per-week": (1, 99),
+}
+MAX_NULL_RATE = 0.10             # categorical columns here have <6% missing
+POSITIVE_RATE_RANGE = (0.15, 0.35)  # ~24% in the real data; far outside = wrong target/labels
+
+
+def validate(df: pd.DataFrame) -> dict:
+    """Schema + range + null-rate + label-balance checks on the CLEANED frame.
+    Raises DataValidationError listing every failure; returns a report dict otherwise."""
+    problems = []
+    missing = [c for c in EXPECTED_COLUMNS if c not in df.columns]
+    extra = [c for c in df.columns if c not in EXPECTED_COLUMNS]
+    if missing:
+        problems.append(f"missing columns: {missing}")
+    if extra:
+        problems.append(f"unexpected columns: {extra}")
+    if not problems:
+        if not set(df[config.TARGET].unique()) <= {0, 1}:
+            problems.append("target is not binary 0/1")
+        for col, (lo, hi) in NUMERIC_RANGES.items():
+            cmin, cmax = df[col].min(), df[col].max()
+            if cmin < lo or cmax > hi:
+                problems.append(f"{col} range [{cmin}, {cmax}] outside allowed [{lo}, {hi}]")
+        null_rate = df.isna().mean()
+        for col, rate in null_rate.items():
+            if rate > MAX_NULL_RATE:
+                problems.append(f"{col} null rate {rate:.1%} > {MAX_NULL_RATE:.0%}")
+        pos = df[config.TARGET].mean()
+        if not POSITIVE_RATE_RANGE[0] <= pos <= POSITIVE_RATE_RANGE[1]:
+            problems.append(f"positive rate {pos:.1%} outside {POSITIVE_RATE_RANGE}")
+    if problems:
+        raise DataValidationError("; ".join(problems))
+    return {"n_rows": len(df), "positive_rate": float(df[config.TARGET].mean()), "checks_passed": True}
+
+
 def get_splits():
-    """Convenience: cleaned data, its fingerprint and the three splits."""
+    """Convenience: validated cleaned data, its fingerprint and the three splits."""
     df = clean(load_raw())
+    validate(df)  # fail before any model trains on bad data
     return df, dataset_fingerprint(df), *split(df)

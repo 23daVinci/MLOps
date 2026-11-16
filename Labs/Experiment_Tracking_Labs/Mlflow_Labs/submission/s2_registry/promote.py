@@ -32,6 +32,20 @@ def get_alias_version(client, alias):
         return None
 
 
+def refuse_if_interrupted(client) -> None:
+    """A rollback writes a 'pending_rollback' tag before touching aliases and removes it after.
+    If it is still there, a previous rollback crashed between the two alias writes: the aliases
+    may be inconsistent, so do NOT stack another change on top until a human has looked."""
+    tags = client.get_registered_model(config.REGISTERED_MODEL_NAME).tags
+    if "pending_rollback" in tags:
+        sys.exit(
+            f"REFUSING: an earlier rollback ({tags['pending_rollback']}) did not finish.\n"
+            f"  champion={getattr(get_alias_version(client, config.CHAMPION_ALIAS), 'version', None)}, "
+            f"previous-champion={getattr(get_alias_version(client, config.PREVIOUS_ALIAS), 'version', None)}\n"
+            "  Fix the aliases by hand, then delete the registered-model tag 'pending_rollback'."
+        )
+
+
 def run_val_auc(client, mv) -> float:
     """Read the metric from the SOURCE RUN (system of record), not from a copied tag."""
     return client.get_run(mv.run_id).data.metrics["val_auc"]
@@ -61,6 +75,7 @@ def set_status(client, mv, status, reason):
 def promote(version: str):
     client = MlflowClient()
     name = config.REGISTERED_MODEL_NAME
+    refuse_if_interrupted(client)
     mv = client.get_model_version(name, version)
     champion = get_alias_version(client, config.CHAMPION_ALIAS)
 
@@ -103,12 +118,19 @@ def promote(version: str):
 def rollback():
     client = MlflowClient()
     name = config.REGISTERED_MODEL_NAME
+    refuse_if_interrupted(client)
     current = get_alias_version(client, config.CHAMPION_ALIAS)
     previous = get_alias_version(client, config.PREVIOUS_ALIAS)
     if current is None or previous is None:
         sys.exit("Nothing to roll back to (need both a champion and a previous-champion).")
+    # Two alias writes can't be atomic, so order matters. Champion goes FIRST: if we crash between
+    # the writes, `champion` already points at the good version (what the operator wanted) and only
+    # the undo pointer is lost. The reverse order would leave users on the bad version AND lose the
+    # pointer to the good one. A write-ahead tag records the intent so a crash is recoverable.
+    client.set_registered_model_tag(name, "pending_rollback", f"v{current.version}->v{previous.version}")
     client.set_registered_model_alias(name, config.CHAMPION_ALIAS, previous.version)
     client.set_registered_model_alias(name, config.PREVIOUS_ALIAS, current.version)  # allows undoing the rollback
+    client.delete_registered_model_tag(name, "pending_rollback")
     # A rollback is an event, not a validation result: record it separately and leave
     # validation_status (did it pass its gates?) untouched.
     client.set_model_version_tag(

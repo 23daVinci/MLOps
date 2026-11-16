@@ -1,50 +1,43 @@
 """Baseline run: logistic regression inside a preprocessing Pipeline.
 
-Run the MLflow server first (see README), then:  python train_baseline.py
+Run the MLflow server first (python -m ops.start_server), then:
+    python -m s1_tracking.train_baseline
 """
-import sys
-
-import matplotlib.pyplot as plt
 import mlflow
 import mlflow.data
+import matplotlib.pyplot as plt
 from mlflow.models import infer_signature
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 
 import config
 import data
-import evaluation
+from features import build_preprocessor
+from metrics import compute_metrics, make_plots
+from s1_tracking.common import log_run_context, setup_mlflow, timed
 
 PARAMS = {"C": 1.0, "max_iter": 1000}
 
 
 def main():
-    # MLflow prints an emoji when a run ends; the default Windows console (cp1252) can't.
-    sys.stdout.reconfigure(encoding="utf-8")
-    mlflow.set_tracking_uri(config.TRACKING_URI)
-    mlflow.set_experiment(config.EXPERIMENT_NAME)  # creates it on first use
+    setup_mlflow()
 
-    df, data_version, train, val, _test = data.get_splits()  # test stays untouched
+    df, data_version, train, val, _test = data.get_splits()  # validated; test stays untouched
     X_train, y_train = data.xy(train)
     X_val, y_val = data.xy(val)
 
     numeric_cols, categorical_cols = data.feature_columns(X_train)
     pipeline = Pipeline(
         [
-            ("prep", evaluation.build_preprocessor(numeric_cols, categorical_cols)),
+            ("prep", build_preprocessor(numeric_cols, categorical_cols)),
             ("model", LogisticRegression(random_state=config.SEED, **PARAMS)),
         ]
     )
 
     with mlflow.start_run(run_name="baseline-logreg") as run:
-        # --- tags: searchable labels --------------------------------------
-        mlflow.set_tags(
-            {
-                "stage": "baseline",
-                "model_family": "linear",
-                "data_version": data_version,
-            }
-        )
+        # --- tags: searchable labels + reproducibility context ------------
+        mlflow.set_tags({"stage": "baseline", "model_family": "linear"})
+        log_run_context(data_version, train, val)
 
         # --- params: everything that determined the result ----------------
         mlflow.log_params(
@@ -73,18 +66,17 @@ def main():
         )
 
         # --- train ---------------------------------------------------------
-        pipeline.fit(X_train, y_train)
+        with timed():
+            pipeline.fit(X_train, y_train)
 
         # --- metrics: train AND validation, so overfitting is visible -----
         train_proba = pipeline.predict_proba(X_train)[:, 1]
         val_proba = pipeline.predict_proba(X_val)[:, 1]
         for split_name, y, proba in [("train", y_train, train_proba), ("val", y_val, val_proba)]:
-            mlflow.log_metrics(
-                {f"{split_name}_{k}": v for k, v in evaluation.compute_metrics(y, proba).items()}
-            )
+            mlflow.log_metrics({f"{split_name}_{k}": v for k, v in compute_metrics(y, proba).items()})
 
         # --- artifacts: plots explain what a single number hides ----------
-        for filename, fig in evaluation.make_plots(y_val, val_proba).items():
+        for filename, fig in make_plots(y_val, val_proba).items():
             mlflow.log_figure(fig, f"val_plots/{filename}")
             plt.close(fig)
 
@@ -106,7 +98,7 @@ def main():
 
         print(f"run_id:       {run.info.run_id}")
         print(f"data_version: {data_version}")
-        print(f"val_auc:      {evaluation.compute_metrics(y_val, val_proba)['auc']:.4f}")
+        print(f"val_auc:      {compute_metrics(y_val, val_proba)['auc']:.4f}")
 
 
 if __name__ == "__main__":

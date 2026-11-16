@@ -4,3 +4,7 @@ mlartifacts/
 mlruns/
 data/
 __pycache__/
+.venv-monitoring/
+logs/
+reports/
+ops/.server.pid

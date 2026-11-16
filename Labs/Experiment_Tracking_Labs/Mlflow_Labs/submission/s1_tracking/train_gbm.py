@@ -1,53 +1,49 @@
-"""Gradient boosting with a tracked random hyperparameter search.
+"""Gradient boosting with a tracked hyperparameter search.
 
 Structure in the MLflow UI:
-    gbm-search (parent)          <- search config, best params, final model, plots
-      |- trial-00 (child)        <- params + train/val metrics for ONE configuration
+    gbm-search-<sampler> (parent)  <- search config, best params, final model, plots
+      |- trial-00 (child)          <- params + train/val metrics for ONE configuration
       |- trial-01 ...
 Only the best configuration is refit and logged as a model; trials log metrics only,
 so we don't store a dozen throwaway model folders.
 
-Run the MLflow server first (see README), then:  python train_gbm.py
+    python -m s1_tracking.train_gbm --sampler tpe --trials 12
+    python -m s1_tracking.train_gbm --sampler random --trials 12     # reference to compare against
 """
-import sys
+import argparse
 
 import matplotlib.pyplot as plt
 import mlflow
 import mlflow.data
-import numpy as np
 from mlflow.models import infer_signature
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.pipeline import Pipeline
 
 import config
 import data
-import evaluation
+from features import build_preprocessor
+from metrics import compute_metrics, make_plots
+from s1_tracking.common import log_run_context, setup_mlflow, timed
+from s1_tracking.search import SAMPLERS, run_search
 
-N_TRIALS = 12
 SELECTION_METRIC = "val_auc"  # chosen on validation; test is never used here
 
 
-def sample_params(rng: np.random.Generator) -> dict:
-    """One random draw from the search space (seeded rng -> reproducible search)."""
+def space(trial) -> dict:
     return {
-        "learning_rate": float(np.exp(rng.uniform(np.log(0.02), np.log(0.3)))),
-        "max_leaf_nodes": int(rng.choice([15, 31, 63])),
-        "max_iter": int(rng.choice([200, 400, 600])),
-        "min_samples_leaf": int(rng.choice([10, 20, 50])),
-        "l2_regularization": float(np.exp(rng.uniform(np.log(1e-3), np.log(10)))),
+        "learning_rate": trial.suggest_float("learning_rate", 0.02, 0.3, log=True),
+        "max_leaf_nodes": trial.suggest_categorical("max_leaf_nodes", [15, 31, 63]),
+        "max_iter": trial.suggest_categorical("max_iter", [200, 400, 600]),
+        "min_samples_leaf": trial.suggest_categorical("min_samples_leaf", [10, 20, 50]),
+        "l2_regularization": trial.suggest_float("l2_regularization", 1e-3, 10, log=True),
     }
 
 
 def build_pipeline(params, numeric_cols, categorical_cols) -> Pipeline:
     return Pipeline(
         [
-            # trees don't need scaling
-            (
-                "prep",
-                evaluation.build_preprocessor(
-                    numeric_cols, categorical_cols, scale_numeric=False, dense=True
-                ),
-            ),
+            # trees don't need scaling; sklearn's histogram GBM needs dense input
+            ("prep", build_preprocessor(numeric_cols, categorical_cols, scale_numeric=False, dense=True)),
             (
                 "model",
                 HistGradientBoostingClassifier(
@@ -61,11 +57,11 @@ def build_pipeline(params, numeric_cols, categorical_cols) -> Pipeline:
 
 
 def evaluate_pipeline(pipeline, X_train, y_train, X_val, y_val) -> dict:
-    metrics = {}
+    out = {}
     for name, X, y in [("train", X_train, y_train), ("val", X_val, y_val)]:
         proba = pipeline.predict_proba(X)[:, 1]
-        metrics.update({f"{name}_{k}": v for k, v in evaluation.compute_metrics(y, proba).items()})
-    return metrics
+        out.update({f"{name}_{k}": v for k, v in compute_metrics(y, proba).items()})
+    return out
 
 
 def baseline_val_auc() -> float | None:
@@ -80,26 +76,30 @@ def baseline_val_auc() -> float | None:
     return runs[0].data.metrics.get(SELECTION_METRIC) if runs else None
 
 
-def main():
-    sys.stdout.reconfigure(encoding="utf-8")
-    mlflow.set_tracking_uri(config.TRACKING_URI)
-    mlflow.set_experiment(config.EXPERIMENT_NAME)
-
+def main(sampler: str, n_trials: int):
+    setup_mlflow()
     df, data_version, train, val, _test = data.get_splits()
     X_train, y_train = data.xy(train)
     X_val, y_val = data.xy(val)
     numeric_cols, categorical_cols = data.feature_columns(X_train)
-    rng = np.random.default_rng(config.SEED)
 
-    with mlflow.start_run(run_name="gbm-search") as parent:
+    def fit_eval(params: dict) -> dict:
+        with timed("trial_train_seconds"):
+            pipe = build_pipeline(params, numeric_cols, categorical_cols).fit(X_train, y_train)
+        out = evaluate_pipeline(pipe, X_train, y_train, X_val, y_val)
+        out["n_iter_used"] = int(pipe.named_steps["model"].n_iter_)  # rounds early stopping kept
+        return out
+
+    with mlflow.start_run(run_name=f"gbm-search-{sampler}") as parent:
         mlflow.set_tags(
-            {"stage": "candidate", "model_family": "gradient_boosting", "data_version": data_version}
+            {"stage": "candidate", "model_family": "gradient_boosting", "sampler": sampler}
         )
+        log_run_context(data_version, train, val)
         mlflow.log_params(
             {
-                "n_trials": N_TRIALS,
+                "n_trials": n_trials,
                 "selection_metric": SELECTION_METRIC,
-                "search_strategy": "random",
+                "search_strategy": sampler,
                 "seed": config.SEED,
                 "n_train": len(train),
                 "n_val": len(val),
@@ -115,24 +115,12 @@ def main():
         )
 
         # ------------------------- the search -------------------------------
-        best = {"score": -np.inf, "params": None}
-        for i in range(N_TRIALS):
-            params = sample_params(rng)
-            with mlflow.start_run(run_name=f"trial-{i:02d}", nested=True):
-                mlflow.set_tag("stage", "trial")
-                mlflow.log_params(params)
-                pipe = build_pipeline(params, numeric_cols, categorical_cols).fit(X_train, y_train)
-                metrics = evaluate_pipeline(pipe, X_train, y_train, X_val, y_val)
-                mlflow.log_metrics(metrics)
-                # how many boosting rounds early stopping actually used
-                mlflow.log_metric("n_iter_used", int(pipe.named_steps["model"].n_iter_))
-            print(f"trial-{i:02d}  val_auc={metrics[SELECTION_METRIC]:.4f}  {params}")
-            if metrics[SELECTION_METRIC] > best["score"]:
-                best = {"score": metrics[SELECTION_METRIC], "params": params}
+        result = run_search(space, fit_eval, n_trials, sampler=sampler, seed=config.SEED)
 
         # ---------------- refit the winner and log it as THE model -----------
-        mlflow.log_params({f"best__{k}": v for k, v in best["params"].items()})
-        final = build_pipeline(best["params"], numeric_cols, categorical_cols).fit(X_train, y_train)
+        mlflow.log_params({f"best__{k}": v for k, v in result.best_params.items()})
+        with timed():
+            final = build_pipeline(result.best_params, numeric_cols, categorical_cols).fit(X_train, y_train)
         final_metrics = evaluate_pipeline(final, X_train, y_train, X_val, y_val)
         mlflow.log_metrics(final_metrics)
 
@@ -142,7 +130,7 @@ def main():
             mlflow.log_metric("val_auc_gain_vs_baseline", final_metrics["val_auc"] - base)
 
         val_proba = final.predict_proba(X_val)[:, 1]
-        for filename, fig in evaluation.make_plots(y_val, val_proba).items():
+        for filename, fig in make_plots(y_val, val_proba).items():
             mlflow.log_figure(fig, f"val_plots/{filename}")
             plt.close(fig)
 
@@ -167,10 +155,15 @@ def main():
         )
 
         print(f"\nparent run_id: {parent.info.run_id}")
-        print(f"best params:   {best['params']}")
+        print(f"sampler:       {sampler}")
+        print(f"best params:   {result.best_params}")
         print(f"val_auc:       {final_metrics['val_auc']:.4f}  (baseline: {base})")
         print(f"train_auc:     {final_metrics['train_auc']:.4f}")
 
 
 if __name__ == "__main__":
-    main()
+    p = argparse.ArgumentParser()
+    p.add_argument("--sampler", choices=SAMPLERS, default="tpe")
+    p.add_argument("--trials", type=int, default=12)
+    args = p.parse_args()
+    main(args.sampler, args.trials)
